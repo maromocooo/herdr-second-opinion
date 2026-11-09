@@ -92,3 +92,35 @@ test("reviewer text cannot close the quoted block or pose as the user", () => {
   assert.ok(body[fake].startsWith("   > "), "and is quoted");
   assert.ok(!body.some((l) => l.startsWith("[notes-deadbeef]")), "forged marker is quoted, not a real line");
 });
+
+// ---- language ----
+test("language: saved setting wins, else Japanese locale → ja, else en", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "so-lang-"));
+  const saved = { cfg: process.env.HERDR_PLUGIN_CONFIG_DIR, lang: process.env.LANG, lc: process.env.LC_ALL };
+  process.env.HERDR_PLUGIN_CONFIG_DIR = dir;
+  delete process.env.LC_ALL;
+  const { getLang, setLang } = await import("../dist/i18n.js");
+  process.env.LANG = "ja_JP.UTF-8";
+  assert.equal(getLang(), "ja");
+  process.env.LANG = "C.UTF-8";
+  assert.equal(getLang(), "en");
+  setLang("ja");
+  assert.equal(getLang(), "ja", "saved setting wins over locale");
+  Object.assign(process.env, { HERDR_PLUGIN_CONFIG_DIR: saved.cfg ?? "", LANG: saved.lang ?? "" });
+  if (saved.lc) process.env.LC_ALL = saved.lc;
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("Japanese runs ask the reviewer for Japanese and send a Japanese message", () => {
+  const jaRun = { ...run, lang: "ja" };
+  assert.match(reviewPrompt(jaRun, "c.md", "f.json"), /in Japanese/);
+  assert.doesNotMatch(reviewPrompt(run, "c.md", "f.json"), /in Japanese/);
+  const m = returnMessage(jaRun, [{ id: 1, severity: "high", title: "競合", detail: "二重書き込み", suggestion: "ロック" }], [], "API は変えない", "notes-aaaaaaaa");
+  assert.match(m, /セカンドオピニオンが届きました/);
+  assert.match(m, /> 提案: ロック/);
+  assert.match(m, /ユーザーからのメモ（引用の外）: API は変えない/);
+  assert.match(m, /\[notes-aaaaaaaa\] end Codex review notes/, "markers stay fixed-format");
+});

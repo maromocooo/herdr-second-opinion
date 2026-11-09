@@ -7,6 +7,7 @@ import {
 import { cli, getAgent, notify, pluginContext } from "./herdr.js";
 import { nextPending, runReview } from "./review.js";
 import { askLine, c, clear, done, nextKey, wrap } from "./ui.js";
+import { getLang, setLang, t, type Lang } from "./i18n.js";
 
 const HELP = `second-opinion — get a second opinion from another coding agent, then send back what you adopt.
 
@@ -33,13 +34,13 @@ async function startWorker() {
 
 // ---------------- ask ----------------
 /** Non-interactive start (scripts/tests): second-opinion ask --pane <id> --subject both --note "…" --yes */
-async function askNow(pane: string, subject: Subject, note: string, autoPick: boolean) {
+async function askNow(pane: string, subject: Subject, note: string, autoPick: boolean, lang: Lang) {
   const origin = await getAgent(pane);
   if (!origin) throw new Error(`${pane} is not an agent pane`);
   const run: Run = {
     id: newRunId(), createdAt: new Date().toISOString(), status: "pending",
     originPane: pane, originAgent: origin.agent, reviewerKind: reviewerFor(origin.agent),
-    cwd: origin.foreground_cwd ?? origin.cwd ?? process.cwd(), subject, note, round: 0, dir: "", autoPick,
+    cwd: origin.foreground_cwd ?? origin.cwd ?? process.cwd(), subject, note, round: 0, dir: "", autoPick, lang,
   };
   saveRun(run);
   await startWorker();
@@ -50,41 +51,49 @@ async function ask(paneArg?: string) {
   const ctx = pluginContext();
   const pane = paneArg ?? ctx.focused_pane_id;
   if (!pane) throw new Error("no focused pane");
+  let lang = getLang();
   const origin = await getAgent(pane);
   if (!origin) {
     clear();
-    console.log(c.yellow("The focused pane is not a coding agent."));
-    console.log("Focus a Claude Code / Codex pane and try again.");
+    console.log(c.yellow(t(lang, "notAgent")));
+    console.log(t(lang, "focusAgent"));
     await nextKey();
     return done(1);
   }
   const cwd = origin.foreground_cwd ?? origin.cwd ?? ctx.focused_pane_cwd ?? process.cwd();
   const reviewer = reviewerFor(origin.agent);
   const diffAvailable = hasDiff(cwd);
-  const choices: { key: string; subject: Subject; label: string }[] = [
-    { key: "1", subject: "output", label: `${origin.agent}'s latest output (its plan / answer)` },
-    { key: "2", subject: "diff", label: diffAvailable ? "uncommitted changes (git diff)" : c.dim("uncommitted changes (none right now)") },
-    { key: "3", subject: "both", label: "both" },
+  const who = reviewer === "codex" ? "Codex" : "Claude";
+  const choices = (): { key: string; subject: Subject; label: string }[] => [
+    { key: "1", subject: "output", label: t(lang, "optOutput", origin.agent) },
+    { key: "2", subject: "diff", label: diffAvailable ? t(lang, "optDiff") : c.dim(t(lang, "optDiffNone")) },
+    { key: "3", subject: "both", label: t(lang, "optBoth") },
   ];
   let sel = diffAvailable ? 2 : 0;
   for (;;) {
     clear();
-    console.log(c.bold(`Second opinion from ${reviewer === "codex" ? "Codex" : "Claude"}`) + c.dim(`  for ${origin.agent} in ${pane}`));
+    console.log(c.bold(t(lang, "askTitle", who, origin.agent, pane)));
     console.log(c.dim(cwd));
     console.log("");
-    console.log("What should it review?");
-    choices.forEach((ch, i) => console.log(`${i === sel ? c.cyan("›") : " "} ${ch.key}  ${ch.label}`));
+    console.log(t(lang, "whatReview"));
+    choices().forEach((ch, i) => console.log(`${i === sel ? c.cyan("›") : " "} ${ch.key}  ${ch.label}`));
     console.log("");
-    console.log(c.dim("↑↓ / 1-3 choose · Enter next · Esc cancel"));
+    console.log(c.dim(t(lang, "langLine")));
+    console.log(c.dim(t(lang, "askKeys")));
     const k = await nextKey();
     if (k.name === "escape" || (k.ctrl && k.name === "c") || k.name === "q") return done(0);
+    if (k.name === "l") {
+      lang = lang === "ja" ? "en" : "ja";
+      setLang(lang); // remembered for next time
+      continue;
+    }
     if (k.name === "up" || k.name === "k") sel = (sel + 2) % 3;
     else if (k.name === "down" || k.name === "j") sel = (sel + 1) % 3;
     else if (["1", "2", "3"].includes(k.sequence ?? "")) sel = Number(k.sequence) - 1;
     else if (k.name === "return") break;
   }
   console.log("");
-  const note = (await askLine(c.cyan("Anything to focus on? ") + c.dim("(optional, Enter to skip) "))).trim();
+  const note = (await askLine(c.cyan(t(lang, "focusPrompt")) + c.dim(t(lang, "optionalSkip")))).trim();
   const run: Run = {
     id: newRunId(),
     createdAt: new Date().toISOString(),
@@ -93,16 +102,17 @@ async function ask(paneArg?: string) {
     originAgent: origin.agent,
     reviewerKind: reviewer,
     cwd,
-    subject: choices[sel].subject,
+    subject: choices()[sel].subject,
     note,
     round: 0,
     dir: "",
+    lang,
   };
   saveRun(run);
   await startWorker();
   console.log("");
-  console.log(c.green(`✓ ${reviewer === "codex" ? "Codex" : "Claude"} will open on the right.`) + " You can watch it and type to it.");
-  console.log(c.dim("You'll get a notification and a picker when the findings are ready."));
+  console.log(c.green(t(lang, "willOpen", who)));
+  console.log(c.dim(t(lang, "willNotify")));
   await new Promise((r) => setTimeout(r, 1800));
   return done(0);
 }
@@ -116,29 +126,30 @@ async function reviewWorker() {
     try {
       await runReview(run, log, followUp);
       const n = run.findings?.findings.length ?? 0;
-      await notify("second-opinion", n ? `${n} finding(s) ready — pick what to send back` : "No issues found", "done");
+      const lang = run.lang ?? "en";
+      await notify("second-opinion", n ? t(lang, "readyN", String(n)) : t(lang, "readyNone"), "done");
       if (run.autoPick !== false) await cli(["plugin", "pane", "open", "--plugin", "second-opinion", "--entrypoint", "pick"]).catch(async () => {
-        await notify("second-opinion", "Open the picker with the second-opinion.pick action", "request");
+        await notify("second-opinion", t(lang, "openPicker"), "request");
       });
     } catch (err) {
       run.status = "failed";
       run.error = String((err as Error).message ?? err);
       saveRun(run);
       log(`failed: ${run.error}`);
-      await notify("second-opinion", `Review failed: ${run.error.slice(0, 120)}`, "request");
+      await notify("second-opinion", t(run.lang ?? "en", "failed", run.error.slice(0, 120)), "request");
     }
   }
 }
 
 // ---------------- pick ----------------
-function renderFinding(f: Finding, on: boolean, cursor: boolean): string[] {
+function renderFinding(f: Finding, on: boolean, cursor: boolean, lang: Lang): string[] {
   const box = on ? c.green("[x]") : "[ ]";
   const head = `${cursor ? c.cyan("›") : " "} ${box} ${SEV[f.severity]}  ${cursor ? c.bold(f.title) : f.title}`;
   if (!cursor) return [head];
   const body: string[] = [];
   if (f.detail) body.push(...wrap(f.detail, "         "));
-  if (f.evidence) body.push(...wrap(`evidence: ${f.evidence}`, "         ").map(c.dim));
-  if (f.suggestion) body.push(...wrap(`suggest:  ${f.suggestion}`, "         ").map(c.cyan));
+  if (f.evidence) body.push(...wrap(`${t(lang, "evidence")}: ${f.evidence}`, "         ").map(c.dim));
+  if (f.suggestion) body.push(...wrap(`${t(lang, "suggest")}: ${f.suggestion}`, "         ").map(c.cyan));
   return [head, ...body];
 }
 
@@ -146,7 +157,7 @@ async function pick(runId?: string) {
   const run = runId ? loadRun(runId) : listRuns().find((r) => r.status === "reviewed") ?? null;
   if (!run || !run.findings) {
     clear();
-    console.log("No review is waiting. Start one with the second-opinion.ask action.");
+    console.log(t(getLang(), "noReview"));
     await nextKey();
     return done(0);
   }
@@ -155,15 +166,16 @@ async function pick(runId?: string) {
   const on = new Set<number>();
   let cur = 0;
   const who = run.reviewerKind === "codex" ? "Codex" : "Claude";
+  const lang: Lang = run.lang ?? getLang();
   for (;;) {
     clear();
-    console.log(c.bold(`${who}'s second opinion`) + c.dim(`  → back to ${run.originAgent} in ${run.originPane} · round ${run.round}`));
+    console.log(c.bold(t(lang, "pickTitle", who)) + c.dim(t(lang, "pickSub", run.originAgent, run.originPane, String(run.round))));
     if (run.findings.summary) wrap(run.findings.summary, "").forEach((l) => console.log(c.dim(l)));
     console.log("");
-    if (!fs.length) console.log(c.green("No issues found."));
-    fs.forEach((f, i) => renderFinding(f, on.has(f.id), i === cur).forEach((l) => console.log(l)));
+    if (!fs.length) console.log(c.green(t(lang, "noIssues")));
+    fs.forEach((f, i) => renderFinding(f, on.has(f.id), i === cur, lang).forEach((l) => console.log(l)));
     console.log("");
-    console.log(c.dim(`↑↓ move · Space toggle · a all/none · Enter review & send (${on.size} selected) · f ask a follow-up · d discard · q later`));
+    console.log(c.dim(t(lang, "pickKeys", String(on.size))));
     const k = await nextKey();
     if (k.name === "q" || k.name === "escape" || (k.ctrl && k.name === "c")) return done(0);
     if ((k.name === "up" || k.name === "k") && fs.length) cur = (cur + fs.length - 1) % fs.length;
@@ -176,38 +188,38 @@ async function pick(runId?: string) {
       return done(0);
     } else if (k.name === "f") {
       console.log("");
-      const q = (await askLine(c.cyan(`Follow-up for ${who}: `))).trim();
+      const q = (await askLine(c.cyan(t(lang, "followUpQ", who)))).trim();
       if (!q) continue;
       run.followUp = q;
       run.status = "pending";
       saveRun(run);
       await startWorker();
-      console.log(c.green(`✓ Sent to ${who}. The picker reopens when it answers.`));
+      console.log(c.green(t(lang, "followUpSent", who)));
       await new Promise((r) => setTimeout(r, 1500));
       return done(0);
     } else if (k.name === "return") {
       const adopted = fs.filter((f) => on.has(f.id));
       if (!adopted.length) continue;
       console.log("");
-      const note = await askLine(c.cyan(`Note for ${run.originAgent} `) + c.dim("(optional, Enter to send) "));
+      const note = await askLine(c.cyan(t(lang, "noteFor", run.originAgent)) + c.dim(t(lang, "optionalSend")));
       const msg = returnMessage(run, adopted, fs.filter((f) => !on.has(f.id)), note);
       // Show exactly what will be sent before sending it.
       clear();
-      console.log(c.bold(`This will be sent to ${run.originAgent} in ${run.originPane}:`));
+      console.log(c.bold(t(lang, "previewTitle", run.originAgent, run.originPane)));
       console.log(c.dim("─".repeat(Math.min(80, process.stdout.columns ?? 80))));
       for (const l of msg.split("\n")) wrap(l, "").forEach((x) => console.log(x));
       console.log(c.dim("─".repeat(Math.min(80, process.stdout.columns ?? 80))));
-      console.log(c.cyan("Send it? ") + c.dim("y = send · any other key = back"));
+      console.log(c.cyan(t(lang, "confirm")) + c.dim(t(lang, "confirmKeys")));
       const confirm = await nextKey();
       if (confirm.name !== "y") continue;
       const origin = await getAgent(run.originPane);
       if (!origin) {
-        console.log(c.red(`${run.originAgent} in ${run.originPane} is gone. Nothing was sent.`));
+        console.log(c.red(t(lang, "gone", run.originAgent, run.originPane)));
         await nextKey();
         return done(1);
       }
       if (origin.agent_status === "working" || origin.agent_status === "blocked") {
-        console.log(c.dim(`${run.originAgent} is busy — waiting until it's ready (Ctrl-C to cancel)…`));
+        console.log(c.dim(t(lang, "busy", run.originAgent)));
         await cli(["agent", "wait", run.originPane, "--until", "idle", "--until", "done"], 24 * 3600 * 1000);
       }
       await cli(["agent", "prompt", run.originPane, msg]);
@@ -215,7 +227,7 @@ async function pick(runId?: string) {
       run.declined = fs.filter((f) => !on.has(f.id)).map((f) => f.title);
       saveRun(run);
       await cli(["pane", "focus", run.originPane]).catch(() => {});
-      console.log(c.green(`✓ Sent ${adopted.length} point(s) to ${run.originAgent}.`));
+      console.log(c.green(t(lang, "sent", String(adopted.length), run.originAgent)));
       await new Promise((r) => setTimeout(r, 1000));
       return done(0);
     }
@@ -232,6 +244,7 @@ async function main() {
       note: { type: "string" },
       yes: { type: "boolean" },
       "no-pick": { type: "boolean" },
+      lang: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -240,9 +253,16 @@ async function main() {
   if (cmd === "ask" && values.yes) {
     if (!values.pane) throw new Error("--yes needs --pane");
     const subject = (["output", "diff", "both"].includes(values.subject ?? "") ? values.subject : "both") as Subject;
-    return askNow(values.pane, subject, values.note ?? "", !values["no-pick"]);
+    const lang: Lang = values.lang === "ja" || values.lang === "en" ? values.lang : getLang();
+    return askNow(values.pane, subject, values.note ?? "", !values["no-pick"], lang);
   }
   if (cmd === "ask") return ask(values.pane);
+  if (cmd === "lang") {
+    const v = positionals[1];
+    if (v === "ja" || v === "en") setLang(v);
+    console.log(getLang());
+    return;
+  }
   if (cmd === "review") return reviewWorker();
   if (cmd === "pick") return pick(values.run);
   if (cmd === "list") {

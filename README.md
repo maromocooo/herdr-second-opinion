@@ -44,6 +44,12 @@ Requirements:
 - herdr 0.9.5+ and Node 20+
 - Claude Code and Codex CLI, both installed and logged in. Claude gets Codex as its reviewer, and Codex gets Claude.
 
+## Language
+
+The popups, notifications and the reviewer's findings can be in English or Japanese. Press `l` in the first popup to switch; your choice is remembered. You can also set it from a shell with `second-opinion lang ja` or `second-opinion lang en`. Without a saved choice, a Japanese locale (`LANG=ja_*`) picks Japanese.
+
+In Japanese mode, the reviewer is asked to write its findings in Japanese, and the message sent back to the original agent is in Japanese too.
+
 ## How it works
 
 - **Same agents you already use.** The reviewer is started with herdr's `agent start`, so it uses your existing login and settings. No API keys are involved.
