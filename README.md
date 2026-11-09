@@ -46,9 +46,14 @@ Requirements:
 
 ## Language
 
-The popups, notifications and the reviewer's findings can be in English or Japanese. Press `l` in the first popup to switch; your choice is remembered. You can also set it from a shell with `second-opinion lang ja` or `second-opinion lang en`. Without a saved choice, a Japanese locale (`LANG=ja_*`) picks Japanese.
+The popups, notifications, the reviewer's findings and the message sent back can be in any language.
 
-In Japanese mode, the reviewer is asked to write its findings in Japanese, and the message sent back to the original agent is in Japanese too.
+- **Fully translated UI:** English, 日本語, 简体中文, 한국어, Español, Français, Deutsch, Português (BR). Press `l` in the first popup to cycle through them. Your choice is remembered.
+- **Any other language:** run e.g. `second-opinion lang Italian`. The UI stays in English, but the reviewer writes its findings in that language, and the original agent is asked to reply in it.
+- From a shell: `second-opinion lang ko`, `second-opinion lang Korean` or `second-opinion lang` (shows the current setting).
+- With no saved choice, the locale decides (`LANG=ko_KR…` → 한국어), else English.
+
+The language is stated explicitly in every request, so switching languages also works when the reviewer pane is reused.
 
 ## How it works
 

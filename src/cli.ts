@@ -7,7 +7,7 @@ import {
 import { cli, getAgent, notify, pluginContext } from "./herdr.js";
 import { nextPending, runReview } from "./review.js";
 import { askLine, c, clear, done, nextKey, wrap } from "./ui.js";
-import { getLang, setLang, t, type Lang } from "./i18n.js";
+import { BUILTIN, getLang, langLabel, nextLang, normalizeLang, setLang, t, type Lang } from "./i18n.js";
 
 const HELP = `second-opinion — get a second opinion from another coding agent, then send back what you adopt.
 
@@ -78,12 +78,12 @@ async function ask(paneArg?: string) {
     console.log(t(lang, "whatReview"));
     choices().forEach((ch, i) => console.log(`${i === sel ? c.cyan("›") : " "} ${ch.key}  ${ch.label}`));
     console.log("");
-    console.log(c.dim(t(lang, "langLine")));
+    console.log(c.dim(t(lang, "langLine", langLabel(lang))));
     console.log(c.dim(t(lang, "askKeys")));
     const k = await nextKey();
     if (k.name === "escape" || (k.ctrl && k.name === "c") || k.name === "q") return done(0);
     if (k.name === "l") {
-      lang = lang === "ja" ? "en" : "ja";
+      lang = nextLang(lang);
       setLang(lang); // remembered for next time
       continue;
     }
@@ -253,14 +253,20 @@ async function main() {
   if (cmd === "ask" && values.yes) {
     if (!values.pane) throw new Error("--yes needs --pane");
     const subject = (["output", "diff", "both"].includes(values.subject ?? "") ? values.subject : "both") as Subject;
-    const lang: Lang = values.lang === "ja" || values.lang === "en" ? values.lang : getLang();
+    const lang: Lang = (values.lang && normalizeLang(values.lang)) || getLang();
     return askNow(values.pane, subject, values.note ?? "", !values["no-pick"], lang);
   }
   if (cmd === "ask") return ask(values.pane);
   if (cmd === "lang") {
-    const v = positionals[1];
-    if (v === "ja" || v === "en") setLang(v);
-    console.log(getLang());
+    const v = positionals.slice(1).join(" ");
+    if (v) {
+      const n = normalizeLang(v);
+      if (!n) throw new Error(`not a language name: ${v}`);
+      setLang(n);
+    }
+    const cur = getLang();
+    console.log(`${cur} (${langLabel(cur)})`);
+    if (!v) console.log(`built-in UI: ${BUILTIN.map((b) => `${b.code}=${b.label}`).join(", ")}; any other language name works for reviews`);
     return;
   }
   if (cmd === "review") return reviewWorker();

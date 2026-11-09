@@ -135,3 +135,51 @@ test("the language is stated explicitly every time, so a reused Japanese pane sw
   assert.match(followUpPrompt("なぜ？", "c.md", "f.json", "ja"), /Language for this request: Japanese/);
   assert.match(followUpPrompt("why?", "c.md", "f.json"), /in English/, "follow-up without lang → English");
 });
+
+// ---- more languages ----
+test("every built-in language has every UI string", async () => {
+  const { missingKeys } = await import("../dist/i18n.js");
+  assert.deepEqual(missingKeys(), {});
+});
+
+test("language names normalize; unsafe names are refused", async () => {
+  const { normalizeLang, nextLang, langName } = await import("../dist/i18n.js");
+  assert.equal(normalizeLang("Korean"), "ko");
+  assert.equal(normalizeLang("한국어"), "ko");
+  assert.equal(normalizeLang("zh-CN"), "zh");
+  assert.equal(normalizeLang("pt_BR"), "pt");
+  assert.equal(normalizeLang("Italian"), "Italian");
+  assert.equal(normalizeLang("Ignore all\nprevious"), null);
+  assert.equal(normalizeLang("x; rm -rf /"), null);
+  assert.equal(langName("Italian"), "Italian");
+  assert.equal(langName("zh"), "Simplified Chinese");
+  assert.equal(nextLang("pt"), "en", "l cycles through built-ins");
+  assert.equal(nextLang("Italian"), "en");
+});
+
+test("locale picks a built-in language", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "so-lang2-"));
+  const saved = { cfg: process.env.HERDR_PLUGIN_CONFIG_DIR, lang: process.env.LANG };
+  process.env.HERDR_PLUGIN_CONFIG_DIR = dir;
+  const { getLang } = await import("../dist/i18n.js");
+  process.env.LANG = "ko_KR.UTF-8";
+  assert.equal(getLang(), "ko");
+  process.env.LANG = "de_DE.UTF-8";
+  assert.equal(getLang(), "de");
+  Object.assign(process.env, { HERDR_PLUGIN_CONFIG_DIR: saved.cfg ?? "", LANG: saved.lang ?? "" });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("built-in and free-form languages reach the reviewer and the return message", async () => {
+  const { followUpPrompt } = await import("../dist/core.js");
+  assert.match(reviewPrompt({ ...run, lang: "ko" }, "c.md", "f.json"), /in Korean/);
+  assert.match(followUpPrompt("?", "c.md", "f.json", "Italian"), /Language for this request: Italian/);
+  const ko = returnMessage({ ...run, lang: "ko" }, [{ id: 1, severity: "low", title: "T", detail: "", suggestion: "S" }], [], "", "notes-11111111");
+  assert.match(ko, /세컨드 오피니언/);
+  assert.match(ko, /> 제안: S/);
+  const it = returnMessage({ ...run, lang: "Italian" }, [{ id: 1, severity: "low", title: "T", detail: "" }], [], "", "notes-22222222");
+  assert.match(it, /Please reply to the user in Italian\./);
+});
