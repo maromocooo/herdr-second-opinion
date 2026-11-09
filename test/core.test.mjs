@@ -124,3 +124,14 @@ test("Japanese runs ask the reviewer for Japanese and send a Japanese message", 
   assert.match(m, /ユーザーからのメモ（引用の外）: API は変えない/);
   assert.match(m, /\[notes-aaaaaaaa\] end Codex review notes/, "markers stay fixed-format");
 });
+
+test("the language is stated explicitly every time, so a reused Japanese pane switches back to English", async () => {
+  const { followUpPrompt } = await import("../dist/core.js");
+  const en = reviewPrompt({ ...run, lang: "en" }, "c.md", "f.json");
+  assert.match(en, /Language for this request: English, regardless of the language of earlier requests/);
+  assert.match(en, /\(summary, title, detail, evidence, suggestion\) in English/);
+  assert.match(reviewPrompt(run, "c.md", "f.json"), /in English/, "no lang set → English");
+  assert.match(followUpPrompt("why?", "c.md", "f.json", "en"), /Language for this request: English/);
+  assert.match(followUpPrompt("なぜ？", "c.md", "f.json", "ja"), /Language for this request: Japanese/);
+  assert.match(followUpPrompt("why?", "c.md", "f.json"), /in English/, "follow-up without lang → English");
+});

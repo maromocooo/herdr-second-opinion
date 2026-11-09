@@ -230,10 +230,17 @@ export function returnMessage(run: Run, adopted: Finding[], rejected: Finding[],
   return lines.join("\n");
 }
 
+/**
+ * Always state the language explicitly: the reviewer pane is reused across runs, so an earlier
+ * "write in Japanese" would otherwise carry over after the user switches to English.
+ */
 function langRule(lang?: Run["lang"]): string[] {
-  return lang === "ja"
-    ? ["", `Write every text value in the JSON (summary, title, detail, evidence, suggestion) in Japanese. Keep the JSON keys and severity values in English. Reply to the user in Japanese.`]
-    : [];
+  const name = lang === "ja" ? "Japanese" : "English";
+  return [
+    "",
+    `Language for this request: ${name}, regardless of the language of earlier requests in this session or of the context file.`,
+    `Write every text value in the JSON (summary, title, detail, evidence, suggestion) in ${name}. Keep the JSON keys and severity values in English. Reply to the user in ${name}.`,
+  ];
 }
 
 function randomTag(): string {
