@@ -13,9 +13,15 @@ function git(cwd: string, args: string[]): string | null {
 
 /** Working files live in the repo (so the reviewer can read/write them) but stay out of git. */
 export function prepareRunDir(run: Run): string {
-  const root = git(run.cwd, ["rev-parse", "--show-toplevel"])?.trim() || run.cwd;
-  const dir = path.join(root, ".second-opinion", run.id);
-  fs.mkdirSync(dir, { recursive: true });
+  const root = fs.realpathSync(git(run.cwd, ["rev-parse", "--show-toplevel"])?.trim() || run.cwd);
+  const base = path.join(root, ".second-opinion");
+  // Never follow a symlinked working dir out of the repo.
+  const st = fs.lstatSync(base, { throwIfNoEntry: false });
+  if (st && (st.isSymbolicLink() || !st.isDirectory())) throw new Error(`${base} is not a plain directory; refusing to use it`);
+  fs.mkdirSync(base, { recursive: true });
+  const dir = path.join(base, run.id);
+  fs.mkdirSync(dir); // fails if it already exists
+  if (fs.realpathSync(dir) !== dir) throw new Error(`${dir} resolves elsewhere; refusing to use it`);
   const exclude = git(root, ["rev-parse", "--git-path", "info/exclude"])?.trim();
   if (exclude) {
     const f = path.resolve(root, exclude);
@@ -122,7 +128,8 @@ export async function runReview(run: Run, log: (s: string) => void, followUp?: s
   if (!followUp) {
     run.status = "reviewing";
     saveRun(run);
-    fs.writeFileSync(path.join(run.dir, "context.md"), buildContext(run, await gatherMaterial(run)));
+    // "wx": create only; never write through a pre-existing file or symlink.
+    fs.writeFileSync(path.join(run.dir, "context.md"), buildContext(run, await gatherMaterial(run)), { flag: "wx" });
   }
   run.round += 1;
   const findingsRel = path.join(relBase, `findings-${run.round}.json`);
@@ -147,6 +154,8 @@ export async function runReview(run: Run, log: (s: string) => void, followUp?: s
     saveRun(run);
     throw new Error(run.error);
   }
+  const fst = fs.lstatSync(findingsAbs);
+  if (!fst.isFile() || fst.size > 1024 * 1024) throw new Error(`${findingsRel} is not a regular file (or too large); ignoring it`);
   run.findings = parseFindings(fs.readFileSync(findingsAbs, "utf8"));
   run.status = "reviewed";
   run.error = undefined;

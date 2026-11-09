@@ -151,7 +151,8 @@ async function pick(runId?: string) {
     return done(0);
   }
   const fs = run.findings.findings;
-  const on = new Set(fs.filter((f) => f.severity !== "low").map((f) => f.id));
+  // Nothing is preselected: every point sent back is one the user chose.
+  const on = new Set<number>();
   let cur = 0;
   const who = run.reviewerKind === "codex" ? "Codex" : "Claude";
   for (;;) {
@@ -162,7 +163,7 @@ async function pick(runId?: string) {
     if (!fs.length) console.log(c.green("No issues found."));
     fs.forEach((f, i) => renderFinding(f, on.has(f.id), i === cur).forEach((l) => console.log(l)));
     console.log("");
-    console.log(c.dim("↑↓ move · Space toggle · a all/none · Enter send selected · f ask a follow-up · d discard · q later"));
+    console.log(c.dim(`↑↓ move · Space toggle · a all/none · Enter review & send (${on.size} selected) · f ask a follow-up · d discard · q later`));
     const k = await nextKey();
     if (k.name === "q" || k.name === "escape" || (k.ctrl && k.name === "c")) return done(0);
     if ((k.name === "up" || k.name === "k") && fs.length) cur = (cur + fs.length - 1) % fs.length;
@@ -190,6 +191,15 @@ async function pick(runId?: string) {
       console.log("");
       const note = await askLine(c.cyan(`Note for ${run.originAgent} `) + c.dim("(optional, Enter to send) "));
       const msg = returnMessage(run, adopted, fs.filter((f) => !on.has(f.id)), note);
+      // Show exactly what will be sent before sending it.
+      clear();
+      console.log(c.bold(`This will be sent to ${run.originAgent} in ${run.originPane}:`));
+      console.log(c.dim("─".repeat(Math.min(80, process.stdout.columns ?? 80))));
+      for (const l of msg.split("\n")) wrap(l, "").forEach((x) => console.log(x));
+      console.log(c.dim("─".repeat(Math.min(80, process.stdout.columns ?? 80))));
+      console.log(c.cyan("Send it? ") + c.dim("y = send · any other key = back"));
+      const confirm = await nextKey();
+      if (confirm.name !== "y") continue;
       const origin = await getAgent(run.originPane);
       if (!origin) {
         console.log(c.red(`${run.originAgent} in ${run.originPane} is gone. Nothing was sent.`));
