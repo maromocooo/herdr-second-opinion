@@ -1,0 +1,42 @@
+id = "second-opinion"
+name = "second-opinion"
+version = "0.1.0"
+min_herdr_version = "0.9.5"
+description = "Get a second opinion from another coding agent without leaving your session. Watch it in a split, steer it, and send back only the findings you adopt."
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["sh", "bin/herdr-build"]
+
+# Bind this to a key, e.g. prefix+o (see README).
+[[actions]]
+id = "ask"
+title = "Second opinion: review the focused agent's work"
+command = ["sh", "-c", "exec \"${HERDR_BIN_PATH:-herdr}\" plugin pane open --plugin second-opinion --entrypoint ask"]
+
+[[actions]]
+id = "pick"
+title = "Second opinion: pick findings to send back"
+command = ["sh", "-c", "exec \"${HERDR_BIN_PATH:-herdr}\" plugin pane open --plugin second-opinion --entrypoint pick"]
+
+# Background worker started by the ask popup; runs the reviewer and opens the picker.
+[[actions]]
+id = "review"
+title = "Second opinion: run pending reviews (internal)"
+command = ["sh", "bin/herdr-launch", "review"]
+
+[[panes]]
+id = "ask"
+title = "Second opinion"
+placement = "popup"
+width = "70%"
+height = "50%"
+command = ["sh", "bin/herdr-launch", "ask"]
+
+[[panes]]
+id = "pick"
+title = "Second opinion — findings"
+placement = "popup"
+width = "85%"
+height = "80%"
+command = ["sh", "bin/herdr-launch", "pick"]

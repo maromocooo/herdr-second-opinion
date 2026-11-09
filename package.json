@@ -1,0 +1,21 @@
+{
+  "name": "herdr-second-opinion",
+  "version": "0.1.0",
+  "description": "Get a second opinion from another coding agent without leaving your session. Watch, steer, and bring the findings back with one key. A herdr plugin.",
+  "type": "module",
+  "bin": { "second-opinion": "dist/cli.js" },
+  "files": ["dist", "bin", "herdr-plugin.toml", "README.md", "README.ja.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepare": "npm run build"
+  },
+  "engines": { "node": ">=20" },
+  "keywords": ["herdr", "herdr-plugin", "claude-code", "codex", "code-review", "ai-agents"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/maromocooo/herdr-second-opinion.git" },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

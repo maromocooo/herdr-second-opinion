@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.second-opinion/
+*.log
